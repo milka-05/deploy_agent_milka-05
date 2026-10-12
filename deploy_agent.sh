@@ -256,8 +256,42 @@ update_thresholds() {
     echo "  Thresholds updated: warning=$warning, failure=$failure"
     grep -E '"(warning|failure)"' "$config"
 }
+# Feature 2: run the application from inside an already deployed project.
+# Usage: run_application "attendance_tracker_NAME"
+run_application() {
+    local dir="$1"
+    local f status
 
-# Feature 1: deploy (we will add more steps here later).
+    if [ ! -d "$dir" ]; then
+        echo "  [ERROR] '$dir' does not exist. Deploy it first (menu option 1)."
+        return 1
+    fi
+
+    for f in attendance_checker.py Helpers/config.json Helpers/assets.csv; do
+        if [ ! -f "$dir/$f" ]; then
+            echo "  [ERROR] '$dir' is incomplete: missing $f"
+            return 1
+        fi
+    done
+
+    echo "Starting the application in $dir ..."
+    ( cd "$dir" && python3 attendance_checker.py )
+    status=$?
+
+    if [ "$status" -eq 0 ]; then
+        echo "Application finished successfully."
+    else
+        echo "  [WARNING] Application exited with code $status."
+    fi
+    return "$status"
+}
+
+# Feature 3: archive logs (placeholder until a later step).
+archive_logs() {
+    echo "  Archiving is not built yet. Coming in a later step."
+}
+
+# Feature 1: deploy the project, then verify it by running the app.
 deploy_project() {
     prompt_project_name
     handle_existing_dir
@@ -267,12 +301,39 @@ deploy_project() {
     set_permissions || exit 1
     update_thresholds || exit 1
 
-    echo "Deployed so far:"
+    echo "Deployment summary:"
     ls -R "$PROJECT_DIR"
     echo "Roster rows (including header): $(wc -l < "$PROJECT_DIR/Helpers/assets.csv")"
-    echo "Final config permissions:"
-    ls -l "$PROJECT_DIR/Helpers/config.json"
+
+    echo "Verifying the deployment by starting the application..."
+    if run_application "$PROJECT_DIR"; then
+        echo "Deployment verified: '$PROJECT_DIR' is ready."
+    else
+        echo "  [ERROR] Verification failed. Check the messages above."
+        return 1
+    fi
+}
+
+# Main menu: the user picks one of the three features.
+main_menu() {
+    local choice
+    while true; do
+        echo ""
+        echo "What would you like to do?"
+        echo "  1) Deploy a new project"
+        echo "  2) Run an existing project"
+        echo "  3) Archive logs"
+        echo "  4) Exit"
+        read -r -p "Choose 1-4: " choice
+        case "$choice" in
+            1) deploy_project ;;
+            2) prompt_project_name; run_application "$PROJECT_DIR" ;;
+            3) archive_logs ;;
+            4) echo "Goodbye."; exit 0 ;;
+            *) echo "  [ERROR] Please enter 1, 2, 3 or 4." ;;
+        esac
+    done
 }
 
 check_prerequisites
-deploy_project
+main_menu
