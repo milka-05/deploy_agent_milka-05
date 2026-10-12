@@ -194,6 +194,68 @@ choose_roster() {
         esac
     done
 }
+# Set permissions: the app is executable, the config is private to the owner.
+set_permissions() {
+    if ! chmod +x "$PROJECT_DIR/attendance_checker.py"; then
+        echo "  [ERROR] Could not make attendance_checker.py executable."
+        return 1
+    fi
+    if ! chmod 600 "$PROJECT_DIR/Helpers/config.json"; then
+        echo "  [ERROR] Could not restrict permissions on config.json."
+        return 1
+    fi
+    echo "  Permissions set:"
+    ls -l "$PROJECT_DIR/attendance_checker.py" "$PROJECT_DIR/Helpers/config.json"
+}
+
+# Ask for a percentage from 0-100. Pressing Enter keeps the default.
+# Usage: prompt_threshold "Label" DEFAULT   (answer ends up in $NUMBER)
+prompt_threshold() {
+    local label="$1" default="$2" input
+    while true; do
+        read -r -p "  New $label threshold % [default $default]: " input
+        input="${input:-$default}"
+        if [[ ! "$input" =~ ^[0-9]{1,3}$ ]]; then
+            echo "  [ERROR] Enter a whole number (digits only)."
+        elif [ "$((10#$input))" -gt 100 ]; then
+            echo "  [ERROR] A percentage cannot be above 100."
+        else
+            break
+        fi
+    done
+    NUMBER=$((10#$input))
+}
+
+# Offer to change the alert thresholds, then edit config.json with sed.
+update_thresholds() {
+    local answer warning failure
+    local config="$PROJECT_DIR/Helpers/config.json"
+
+    read -r -p "Update the attendance alert thresholds? (y/n): " answer
+    if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then
+        echo "  Keeping the default thresholds (warning 75, failure 50)."
+        return 0
+    fi
+
+    while true; do
+        prompt_threshold "warning" 75
+        warning="$NUMBER"
+        prompt_threshold "failure" 50
+        failure="$NUMBER"
+        if [ "$failure" -lt "$warning" ]; then
+            break
+        fi
+        echo "  [ERROR] Failure ($failure) must be lower than warning ($warning). Enter both again."
+    done
+
+    if ! sed -i "s/\"warning\": [0-9]*/\"warning\": $warning/" "$config" ||
+       ! sed -i "s/\"failure\": [0-9]*/\"failure\": $failure/" "$config"; then
+        echo "  [ERROR] Could not update config.json."
+        return 1
+    fi
+    echo "  Thresholds updated: warning=$warning, failure=$failure"
+    grep -E '"(warning|failure)"' "$config"
+}
 
 # Feature 1: deploy (we will add more steps here later).
 deploy_project() {
@@ -202,11 +264,14 @@ deploy_project() {
     create_structure || exit 1
     copy_templates || exit 1
     choose_roster || exit 1
+    set_permissions || exit 1
+    update_thresholds || exit 1
 
     echo "Deployed so far:"
     ls -R "$PROJECT_DIR"
     echo "Roster rows (including header): $(wc -l < "$PROJECT_DIR/Helpers/assets.csv")"
-    grep total_sessions "$PROJECT_DIR/Helpers/config.json"
+    echo "Final config permissions:"
+    ls -l "$PROJECT_DIR/Helpers/config.json"
 }
 
 check_prerequisites
