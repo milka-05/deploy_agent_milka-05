@@ -8,6 +8,7 @@ TEMPLATE_DIR="$SCRIPT_DIR/templates"
 PROJECT_NAME=""
 PROJECT_DIR=""
 NUMBER=""
+PROJECT_CREATED=0
 
 echo "=============================="
 echo "   Attendance Deploy Agent"
@@ -287,28 +288,6 @@ run_application() {
 }
 
 
-# Feature 1: deploy the project, then verify it by running the app.
-deploy_project() {
-    prompt_project_name
-    handle_existing_dir
-    create_structure || exit 1
-    copy_templates || exit 1
-    choose_roster || exit 1
-    set_permissions || exit 1
-    update_thresholds || exit 1
-
-    echo "Deployment summary:"
-    ls -R "$PROJECT_DIR"
-    echo "Roster rows (including header): $(wc -l < "$PROJECT_DIR/Helpers/assets.csv")"
-
-    echo "Verifying the deployment by starting the application..."
-    if run_application "$PROJECT_DIR"; then
-        echo "Deployment verified: '$PROJECT_DIR' is ready."
-    else
-        echo "  [ERROR] Verification failed. Check the messages above."
-        return 1
-    fi
-}
 
 # Main menu: the user picks one of the three features.
 main_menu() {
@@ -396,6 +375,79 @@ archive_logs() {
         return 1
     fi
     return 0
+}
+# Runs when Ctrl+C (SIGINT) or Ctrl+Z (SIGTSTP) arrives during deployment.
+# Usage: handle_interrupt SIGNAL_NAME EXIT_CODE
+handle_interrupt() {
+    local sig="$1" code="$2"
+    local zipfile
+
+    trap - INT TSTP        # a second signal must not run this twice
+
+    echo ""
+    echo "[INTERRUPTED] Deployment was stopped by $sig."
+
+    if [ "$PROJECT_CREATED" -eq 1 ] && [ -d "$PROJECT_DIR" ]; then
+        zipfile="${PROJECT_DIR}_archive.zip"
+        echo "Archiving the incomplete project into $zipfile ..."
+        rm -f "$zipfile"   # never merge into a stale zip from an earlier run
+        if zip -rq "$zipfile" "$PROJECT_DIR"; then
+            echo "  Archive created: $zipfile"
+            if rm -rf "$PROJECT_DIR"; then
+                echo "  Incomplete directory removed: $PROJECT_DIR"
+            else
+                echo "  [ERROR] Could not remove $PROJECT_DIR"
+            fi
+        else
+            echo "  [ERROR] zip failed. The incomplete directory was left in place."
+        fi
+    else
+        echo "  This run had not created any project files, so there is nothing to archive."
+        echo "  Any existing folder was left untouched."
+    fi
+
+    echo "Session closed cleanly."
+    exit "$code"
+}
+
+# Turn the traps on (deployment starts) and off (deployment is done).
+arm_traps() {
+    trap 'handle_interrupt SIGINT 130' INT
+    trap 'handle_interrupt SIGTSTP 148' TSTP
+}
+
+disarm_traps() {
+    trap - INT TSTP
+}
+
+# Feature 1: deploy the project, then verify it by running the app.
+deploy_project() {
+    PROJECT_CREATED=0
+    arm_traps
+
+    prompt_project_name
+    handle_existing_dir
+    create_structure || exit 1
+    PROJECT_CREATED=1      # from here on, the folder is ours to archive and delete
+    copy_templates || exit 1
+    choose_roster || exit 1
+    set_permissions || exit 1
+    update_thresholds || exit 1
+
+    # Deployment is complete. The app handles its own Ctrl+C from here on.
+    disarm_traps
+
+    echo "Deployment summary:"
+    ls -R "$PROJECT_DIR"
+    echo "Roster rows (including header): $(wc -l < "$PROJECT_DIR/Helpers/assets.csv")"
+
+    echo "Verifying the deployment by starting the application..."
+    if run_application "$PROJECT_DIR"; then
+        echo "Deployment verified: '$PROJECT_DIR' is ready."
+    else
+        echo "  [ERROR] Verification failed. Check the messages above."
+        return 1
+    fi
 }
 
 check_prerequisites
