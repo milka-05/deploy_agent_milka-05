@@ -286,10 +286,6 @@ run_application() {
     return "$status"
 }
 
-# Feature 3: archive logs (placeholder until a later step).
-archive_logs() {
-    echo "  Archiving is not built yet. Coming in a later step."
-}
 
 # Feature 1: deploy the project, then verify it by running the app.
 deploy_project() {
@@ -333,6 +329,73 @@ main_menu() {
             *) echo "  [ERROR] Please enter 1, 2, 3 or 4." ;;
         esac
     done
+}
+# Move one log into its archive folder under a timestamped name.
+# Usage: archive_one SOURCE_LOG DESTINATION
+# Returns: 0 = archived, 1 = move failed, 2 = log not found.
+archive_one() {
+    local src="$1" dest="$2"
+
+    if [ ! -f "$src" ]; then
+        echo "  [SKIPPED] $src not found (nothing to archive)."
+        return 2
+    fi
+
+    if mv "$src" "$dest"; then
+        echo "  [ARCHIVED] $dest"
+        return 0
+    fi
+
+    echo "  [ERROR] Could not archive $src"
+    return 1
+}
+
+# Feature 3: archive the session logs of a deployed project.
+archive_logs() {
+    local att_log att_dir abs_log abs_dir stamp rc
+    local archived=0 failed=0
+
+    prompt_project_name
+    if [ ! -d "$PROJECT_DIR" ]; then
+        echo "  [ERROR] '$PROJECT_DIR' does not exist. Nothing to archive."
+        return 1
+    fi
+
+    att_log="$PROJECT_DIR/reports/attendance.log"
+    abs_log="$PROJECT_DIR/reports/absent.log"
+    att_dir="$PROJECT_DIR/archives/attendance"
+    abs_dir="$PROJECT_DIR/archives/absent"
+
+    if ! mkdir -p "$att_dir" "$abs_dir"; then
+        echo "  [ERROR] Could not create the archive folders."
+        return 1
+    fi
+
+    # One timestamp for the whole run, so both logs share it.
+    stamp=$(date +%Y%m%d_%H%M%S)
+    echo "Archiving logs for $PROJECT_DIR (timestamp $stamp)..."
+
+    archive_one "$att_log" "$att_dir/attendance_${stamp}.log"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then archived=$((archived + 1)); fi
+    if [ "$rc" -eq 1 ]; then failed=1; fi
+
+    archive_one "$abs_log" "$abs_dir/absent_${stamp}.log"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then archived=$((archived + 1)); fi
+    if [ "$rc" -eq 1 ]; then failed=1; fi
+
+    if [ "$archived" -eq 0 ] && [ "$failed" -eq 0 ]; then
+        echo "No logs found. Run the application first (menu option 2)."
+    else
+        echo "Summary: $archived log(s) archived."
+        ls -R "$PROJECT_DIR/archives"
+    fi
+
+    if [ "$failed" -eq 1 ]; then
+        return 1
+    fi
+    return 0
 }
 
 check_prerequisites
