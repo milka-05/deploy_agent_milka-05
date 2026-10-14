@@ -1,7 +1,7 @@
 # Deploy Agent: Student Attendance Tracker
 
 **Author:** Milka (GitHub: milka-05)
-**Video walkthrough:** (add link here)
+**Video walkthrough:** (https://youtu.be/1nt2Eylada4)
 
 `deploy_agent.sh` is a Bash script that deploys the Student Attendance Tracker
 (a Python app), runs it, and archives its logs. It also handles Ctrl+C and
